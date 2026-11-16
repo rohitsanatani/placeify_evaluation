@@ -1,0 +1,26 @@
+{
+  "city": "newyork",
+  "model": "siglip",
+  "modality": "image",
+  "comparison_view": "panorama",
+  "n_places": 3,
+  "n_repeats": 2,
+  "practice": true,
+
+  "port": 5050,
+  "completion_url": "",
+  "completion_code": "",
+
+  "_options": {
+    "city": "newyork | london | boston",
+    "model": "m2f | siglip",
+    "modality": "image | sketch | text  (text only works with siglip)",
+    "comparison_view": "panorama (all 4 headings, matched one enlarged) | single (just the matched image)",
+    "n_places": "how many of the 20 test places each participant rates (least-used places are handed out first)",
+    "n_repeats": "consistency check: comparisons per place shown a second time (0 = off)",
+    "practice": "true = start with a practice block of 4 comparisons (place p00)",
+    "port": "any free port, e.g. 5050-5059",
+    "completion_url": "Prolific's completion link (participants are sent there at the end)",
+    "completion_code": "Prolific's completion code (shown on the thank-you page)"
+  }
+}

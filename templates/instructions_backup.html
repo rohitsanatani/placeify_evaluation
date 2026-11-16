@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Place Similarity Study</title>
+<style>
+  :root { --bg:#f6f5f2; --panel:#fff; --text:#1d1d1f; --muted:#6b6b70; --line:#dddcd7; --accent:#2f5d8a; --err:#a1262a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 680px; margin: 6vh auto; padding: 0 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 28px 24px; }
+  h1 { font-size: 24px; margin: 0 0 12px; }
+  h2 { font-size: 16px; margin: 22px 0 6px; }
+  ul { margin: 6px 0; padding-left: 22px; }
+  li { margin: 4px 0; }
+  .consent { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; background: #faf9f6; }
+  .consent p { margin: 0 0 10px; }
+  label.check { display: flex; gap: 10px; align-items: flex-start; font-weight: 400; margin: 0; cursor: pointer; }
+  label.check input { margin-top: 4px; width: 18px; height: 18px; accent-color: var(--accent); }
+  p, li { color: var(--text); }
+  .muted { color: var(--muted); font-size: 14px; }
+  label { display: block; font-weight: 600; margin: 22px 0 6px; }
+  input[type=text] { width: 100%; font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+  input[type=text]:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button { font: inherit; margin-top: 18px; padding: 11px 26px; border-radius: 8px; border: 1px solid var(--accent);
+    background: var(--accent); color: #fff; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  .err { color: var(--err); margin-top: 10px; min-height: 1.4em; }
+</style>
+</head>
+<body>
+<main>
+  <div class="card">
+    <h1>Place Similarity Study</h1>
+    <!-- DRAFT wording - to be agreed with Rohit, Takehiko and Sarah.
+         Keep the id="..." attributes: the page fills them in for image / sketch / text sessions. -->
+
+    <h2>About this study</h2>
+    <p>We are researchers at MIT studying how people judge whether two places look and feel alike.
+       You will compare street scenes from a city and tell us how similar they seem to you.</p>
+
+    <h2>What you will do</h2>
+    <ul>
+      <li id="ref-line">On the left you will see a <b>reference place</b> (a street-level photo).</li>
+      <li>On the right you will see another place. Use the slider to rate
+          <span id="rate-what">how similar it is to the reference</span>,
+          from <b>1 (not at all similar)</b> to <b>7 (very similar)</b>, then press <b>Next</b>.</li>
+      <li>The reference stays the same for 20 comparisons, then changes. There are <b id="n-places">20</b>
+          references in total (<b id="n-ratings">400</b> ratings).</li>
+    </ul>
+
+    <h2>What to focus on</h2>
+    <ul>
+      <li id="focus-line">Judge the <b>place itself</b>: the kind of street, the buildings, trees and greenery,
+          how open or enclosed it feels, and its overall character.</li>
+      <li>Try to <b>ignore</b> the weather, season and time of day, individual cars or people, and photo quality.</li>
+      <li>There are no right or wrong answers. Go with your first impression; most people spend a few seconds on each.</li>
+    </ul>
+
+    <h2>Practical details</h2>
+    <ul>
+      <li>The study takes about <b id="minutes">25&ndash;35</b> minutes. Please use a laptop or desktop computer.</li>
+      <li>You can press <b>Back</b> to change an answer. Your answers are saved as you go, so if you close the tab
+          by accident, open the study link again to continue where you left off.</li>
+      <li>At the end you will get a completion code for Prolific.</li>
+    </ul>
+
+    <h2>Consent</h2>
+    <div class="consent">
+      <!-- REPLACE with the consent text approved by MIT COUHES before running the real study -->
+      <p class="muted">[Consent statement goes here: purpose, that participation is voluntary and you may stop at
+         any time, what data is collected (your Prolific ID and your ratings; no other personal information),
+         how it is stored and used, payment, and contact details for the researchers and for COUHES.]</p>
+      <label class="check"><input type="checkbox" id="consent"> I have read the information above and agree to take part.</label>
+    </div>
+
+    <label for="pid">Your Prolific ID</label>
+    <input type="text" id="pid" autocomplete="off" spellcheck="false" placeholder="e.g. 5f8a1b2c3d4e5f6a7b8c9d0e">
+    <div class="err" id="err"></div>
+    <button id="startBtn">Start</button>
+  </div>
+</main>
+<script>
+(async function () {
+  const params = new URLSearchParams(location.search);
+  const pidBox = document.getElementById("pid"), err = document.getElementById("err"), btn = document.getElementById("startBtn");
+  if (params.get("PROLIFIC_PID")) pidBox.value = params.get("PROLIFIC_PID");
+
+  try {
+    const info = await (await fetch("/api/info")).json();
+    document.getElementById("n-places").textContent = info.n_places;
+    document.getElementById("n-ratings").textContent = info.n_ratings;
+    const ref = { image: "a <b>reference place</b> (a street-level photo)",
+                  sketch: "a <b>reference sketch</b> (a simple line drawing of a place)",
+                  text: "a short written <b>description</b> of a place" }[info.modality];
+    document.getElementById("ref-line").innerHTML = `On the left you will see ${ref}.`;
+    if (info.modality === "text") {
+      document.getElementById("rate-what").textContent = "how well it matches the description";
+      document.getElementById("focus-line").innerHTML = "Judge how well the <b>place itself</b> fits the description: " +
+        "the kind of street, the buildings, trees and greenery, and its overall character.";
+    } else if (info.modality === "sketch") {
+      document.getElementById("rate-what").textContent = "how similar it is to the place in the sketch";
+      document.getElementById("focus-line").innerHTML = "Judge the <b>place itself</b>: does it have the same kind of " +
+        "street, buildings, trees and layout as the place in the drawing? The sketch has no colour, so don't compare colours.";
+    }
+    // rough estimate at 4-5 seconds per rating
+    const lo = Math.round(info.n_ratings * 4 / 60 / 5) * 5, hi = Math.round(info.n_ratings * 5 / 60 / 5) * 5;
+    document.getElementById("minutes").textContent = `${lo}–${hi}`;
+  } catch (e) { /* page still works with the defaults */ }
+
+  btn.addEventListener("click", async () => {
+    const pid = pidBox.value.trim();
+    const consent = document.getElementById("consent").checked;
+    if (!consent) { err.textContent = "Please tick the consent box to continue."; return; }
+    if (!pid) { err.textContent = "Please enter your Prolific ID."; pidBox.focus(); return; }
+    btn.disabled = true; err.textContent = "";
+    try {
+      const r = await fetch("/api/start", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prolific_id: pid, consent: true, study_id: params.get("STUDY_ID") || "",
+                               session_id: params.get("SESSION_ID") || "" }) });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Could not start");
+      location.href = "/study?sid=" + encodeURIComponent(d.session_id);
+    } catch (e) {
+      err.textContent = e.message || "Could not start. Please try again.";
+      btn.disabled = false;
+    }
+  });
+  pidBox.addEventListener("keydown", e => { if (e.key === "Enter") btn.click(); });
+})();
+</script>
+</body>
+</html>

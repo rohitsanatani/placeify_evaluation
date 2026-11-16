@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Place Similarity Study</title>
+<style>
+  :root { --bg:#f6f5f2; --panel:#fff; --text:#1d1d1f; --muted:#6b6b70; --line:#dddcd7; --accent:#2f5d8a;
+    --track:#e4e2dc; --err:#a1262a; --note:#fff4d6; --note-line:#e8cf8a;
+    /* image heights scale with the window so everything fits on a laptop screen without scrolling */
+    --ref-h: clamp(110px, 22vh, 300px); --pano-h: clamp(90px, 23vh, 270px); --single-h: clamp(130px, 27vh, 340px); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 10px 16px 16px; }
+  header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+  .progress-text { font-size: 14px; color: var(--muted); white-space: nowrap; }
+  .tag { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 2px 8px;
+    border-radius: 4px; background: var(--note); border: 1px solid var(--note-line); }
+  .bar { flex: 1; min-width: 160px; height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; }
+  .bar > div { height: 100%; background: var(--accent); width: 0; transition: width .2s; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+  .label { font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted);
+    margin: 0 0 6px; display: flex; gap: 10px; align-items: center; }
+  .new-place { text-transform: none; letter-spacing: 0; font-weight: 600; color: var(--text); background: var(--note);
+    border: 1px solid var(--note-line); border-radius: 4px; padding: 1px 8px; }
+
+  /* reference (top) */
+  .ref { display: flex; justify-content: center; }
+  .ref img { height: var(--ref-h); width: auto; max-width: 100%; object-fit: contain; border-radius: 6px; background: #ecebe6; display: block; }
+  .ref img.sketch { background: #fff; border: 1px solid var(--line); }
+  .ref .text-box { min-height: calc(var(--ref-h) * .6); max-width: 760px; width: 100%; border-radius: 6px; background: #ecebe6;
+    display: flex; align-items: center; justify-content: center; padding: 18px 24px; }
+  .ref .text-box p { margin: 0; font-size: clamp(18px, 2.1vw, 24px); line-height: 1.4; text-align: center; }
+
+  /* comparison (bottom): panorama = 4 headings in 0/90/180/270 order, all the same size,
+     with an arrow over the view to compare (the matched one) */
+  .pano { display: flex; justify-content: center; align-items: flex-end; gap: 10px; padding: 2px 6px 6px; }
+  .pano figure { margin: 0; flex: 1 1 0; min-width: 0; max-width: calc(var(--pano-h) * 1.5);
+    display: flex; flex-direction: column; align-items: center; }
+  .pano .arrow { height: 20px; margin-bottom: 6px; font-size: 13px; font-weight: 700; color: var(--accent); white-space: nowrap; visibility: hidden; }
+  .pano figure.main .arrow { visibility: visible; }
+  .pano img { display: block; width: 100%; aspect-ratio: 3 / 2; object-fit: contain; border-radius: 5px; background: #ecebe6; }
+  .pano figure.main img { outline: 3px solid var(--accent); outline-offset: 2px; }
+  .pano.single figure { max-width: calc(var(--single-h) * 1.5); }
+  .pano.single .arrow { display: none; }
+  .pano.single figure.main img { outline: none; }
+
+  /* hover to enlarge, in place: after a short pause the image grows ~2x where it is.
+     transform-origin is set per image in the script so it grows away from the screen edges. */
+  /* Hover is detected on a wrapper that keeps the image's ORIGINAL size (the image itself ignores the
+     mouse), so moving onto a neighbouring view switches the zoom even though the enlarged one covers it. */
+  .zoomwrap { display: block; position: relative; z-index: 1; cursor: zoom-in; }
+  .ref .zoomwrap { display: inline-block; max-width: 100%; }
+  .zoomwrap > img { pointer-events: none; transition: transform .18s ease, box-shadow .18s ease; }
+  .zoomwrap:hover { z-index: 30; }
+  .zoomwrap:hover > img { transform: scale(2); transition-delay: .2s; box-shadow: 0 8px 30px rgba(0,0,0,.35); }
+
+  .rating { margin-top: 4px; }
+  .qrow { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 0 4px; }
+  .question { font-weight: 600; margin: 0; }
+  input[type=range] { width: 100%; accent-color: var(--accent); margin: 0; height: 26px; cursor: pointer; }
+  input[type=range]:focus { outline: none; }
+  input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
+  .ticks { display: flex; justify-content: space-between; padding: 0 6px; font-size: 13px; color: var(--muted);
+    font-variant-numeric: tabular-nums; }
+  .ends { display: flex; justify-content: space-between; font-size: 13px; }
+  .value { font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .value b { color: var(--text); font-size: 16px; }
+  textarea { width: 100%; font: inherit; font-size: 14px; padding: 7px 10px; border: 1px solid var(--line);
+    border-radius: 6px; resize: vertical; min-height: 38px; margin-top: 8px; }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  nav { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .status { font-size: 14px; color: var(--err); flex: 1; text-align: center; }
+  button { font: inherit; padding: 9px 22px; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .4; cursor: default; }
+  .done { max-width: 580px; margin: 12vh auto; text-align: center; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 10px; padding: 32px 24px; }
+  .done p { color: var(--muted); }
+  .code { font: 600 20px ui-monospace, Menlo, monospace; color: var(--text); background: #f0efea;
+    display: inline-block; padding: 6px 14px; border-radius: 6px; }
+  [hidden] { display: none !important; }
+  /* short windows (e.g. a 1366x768 laptop once the browser's toolbars are counted) */
+  @media (max-height: 720px) {
+    :root { --ref-h: clamp(100px, 19vh, 300px); --pano-h: clamp(80px, 21vh, 270px); --single-h: clamp(120px, 25vh, 340px); }
+    .pano .arrow { height: 17px; font-size: 12px; }
+    .wrap { padding-top: 6px; padding-bottom: 8px; } header { margin-bottom: 4px; }
+    .card { padding: 6px 10px; margin-bottom: 6px; } .label { margin-bottom: 3px; }
+    textarea { margin-top: 4px; min-height: 32px; padding: 5px 9px; } button { padding: 7px 20px; }
+  }
+  @media (max-width: 720px) { :root { --ref-h: 30vw; --pano-h: 22vw; --single-h: 40vw; } .pano { gap: 4px; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section id="study" hidden>
+    <header>
+      <span class="tag" id="practiceTag" hidden>Practice</span>
+      <span class="progress-text" id="progressText"></span>
+      <div class="bar"><div id="barFill"></div></div>
+    </header>
+
+    <div class="card">
+      <p class="label"><span id="refLabel">Reference place</span><span class="new-place" id="newPlace" hidden>New reference</span></p>
+      <div class="ref">
+        <img id="refImg" alt="Reference">
+        <div class="text-box" id="refTextBox" hidden><p id="refText"></p></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <p class="label" id="cmpLabel">Comparison place</p>
+      <div class="pano" id="pano"></div>
+      <div class="rating">
+        <div class="qrow"><p class="question" id="question">How similar is this place to the reference place?</p>
+          <div class="value">Your rating: <b id="valueOut">4</b></div></div>
+        <input type="range" id="slider" min="1" max="7" step="1" value="4" aria-label="Similarity rating, 1 to 7">
+        <div class="ticks"><span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span></div>
+        <div class="ends"><span>Not at all similar</span><span>Very similar</span></div>
+        <textarea id="comment" rows="1" maxlength="1000"
+          placeholder="Optional: why did you give this rating? (e.g. what looks similar or different)"></textarea>
+      </div>
+    </div>
+
+    <nav>
+      <button id="backBtn">Back</button>
+      <span class="status" id="status"></span>
+      <button id="nextBtn" class="primary">Next</button>
+    </nav>
+  </section>
+
+  <section id="practiceIntro" class="done" hidden>
+    <h2>Practice round</h2>
+    <p>Before the study starts, you will do <b id="nPractice">4</b> practice comparisons to get used to the page.
+       These don't count, so take your time and try out the slider, the comment box and the Back button.</p>
+    <button id="practiceBtn" class="primary">Start the practice</button>
+  </section>
+
+  <section id="practiceDone" class="done" hidden>
+    <h2>Practice complete</h2>
+    <p>That was a practice round to get used to the page. From now on your answers count.</p>
+    <p id="mainInfo"></p>
+    <button id="beginBtn" class="primary">Start the study</button>
+  </section>
+
+  <section id="finish" class="done" hidden>
+    <h2>Thank you!</h2>
+    <p>Your answers have been saved.</p>
+    <p id="codeLine" hidden>Your completion code: <span class="code" id="code"></span></p>
+    <p id="redirectLine" hidden><a id="redirectLink" href="#">Return to Prolific</a></p>
+  </section>
+
+  <section id="error" class="done" hidden>
+    <h2>Something went wrong</h2>
+    <p id="errorText"></p>
+  </section>
+</div>
+
+
+<script>
+(async function () {
+  const el = id => document.getElementById(id);
+  const sid = new URLSearchParams(location.search).get("sid");
+  // hover to enlarge in place (the CSS does the zoom); origin = which point stays fixed while it grows
+  function makeZoomable(img, origin) {
+    if (!img.parentElement.classList.contains("zoomwrap")) {
+      const wrap = document.createElement("span");
+      wrap.className = "zoomwrap";
+      img.parentElement.insertBefore(wrap, img);
+      wrap.appendChild(img);
+    }
+    img.style.transformOrigin = origin;
+  }
+
+  const show = id => {
+    for (const s of ["study", "practiceIntro", "practiceDone", "finish", "error"]) el(s).hidden = s !== id;
+  };
+
+  const fail = msg => { show("error"); el("errorText").textContent = msg; };
+  if (!sid) return fail("This page needs a session. Please start from the study link.");
+
+  let S;
+  try {
+    const r = await fetch("/api/session/" + encodeURIComponent(sid));
+    if (!r.ok) throw new Error();
+    S = await r.json();
+  } catch (e) { return fail("Session not found. Please start again from the study link."); }
+
+  const pano = S.view === "panorama";
+  const COPY = {
+    image:  { label: "Reference place",       question: "How similar is this place to the reference place?" },
+    sketch: { label: "Reference sketch",      question: "How similar is this place to the reference sketch?" },
+    text:   { label: "Reference description", question: "How well does this place match the description?" }
+  }[S.modality];
+  el("refLabel").textContent = COPY.label;
+  el("question").textContent = COPY.question;
+  el("cmpLabel").textContent = pano
+    ? "Comparison place · 360° view: four directions from the same spot · hover over any image to enlarge it"
+    : "Comparison place · hover to enlarge";
+  if (S.modality !== "text") el("refLabel").textContent += " · hover to enlarge";
+  if (!pano) el("pano").classList.add("single");
+  const isText = S.modality === "text";
+  el("refImg").hidden = isText;
+  el("refTextBox").hidden = !isText;
+  if (S.modality === "sketch") el("refImg").classList.add("sketch");
+  if (!isText) makeZoomable(el("refImg"), "center top");      // grows downward
+
+  const T = S.trials, slider = el("slider"), comment = el("comment");
+  const firstMain = T.findIndex(t => t.block === "main");
+  const nMain = T.length - (firstMain < 0 ? 0 : firstMain);
+  let idx = Math.min(S.resume_at, T.length - 1), shownAt = 0, busy = false, finished = false;
+
+  function preload(i) {
+    if (i < T.length) {
+      for (const c of T[i].comparison) new Image().src = c.src;
+      if (T[i].query) new Image().src = T[i].query;
+    }
+  }
+
+  function render() {
+    const t = T[idx];
+    if (isText) el("refText").textContent = t.query_text;
+    else if (el("refImg").getAttribute("src") !== t.query) el("refImg").src = t.query;
+
+    const box = el("pano");
+    box.innerHTML = "";
+    const nViews = t.comparison.length;
+    for (const [k, c] of t.comparison.entries()) {
+      const fig = document.createElement("figure");
+      if (c.main) fig.className = "main";
+      const arrow = document.createElement("div");
+      arrow.className = "arrow"; arrow.textContent = "\u25BC Compare mainly this view";
+      const img = document.createElement("img");
+      img.src = c.src; img.alt = c.main ? "Comparison place" : "Another view of the comparison place";
+      fig.appendChild(arrow); fig.appendChild(img); box.appendChild(fig);
+      // edge views grow inward so they stay on screen; the single image grows from its centre
+      makeZoomable(img, !pano ? "center center" : k === 0 ? "left center" : k === nViews - 1 ? "right center" : "center center");
+    }
+
+    slider.value = t.rating === null ? 4 : t.rating;
+    el("valueOut").textContent = slider.value;
+    comment.value = t.comment || "";
+
+    const practice = t.block === "practice";
+    el("practiceTag").hidden = !practice;
+    el("progressText").textContent = practice
+      ? `Comparison ${t.comparison_position} of ${t.n_in_place}`
+      : `Place ${t.place_position} of ${t.n_places} · Comparison ${t.comparison_position} of ${t.n_in_place}`;
+    el("newPlace").hidden = !(t.block === "main" && t.comparison_position === 1 && t.place_position > 1);
+    el("barFill").style.width = practice ? "0%" : (100 * (idx - firstMain) / nMain) + "%";
+    el("backBtn").disabled = idx === 0 || idx === firstMain;   // no going back into the practice round
+    el("status").textContent = "";
+    shownAt = performance.now();
+    preload(idx + 1); preload(idx + 2);
+  }
+
+  async function post(url, body) {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" },
+                                 body: JSON.stringify(body || {}) });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.error || "save failed");
+    return d;
+  }
+
+  async function save() {
+    const rating = Number(slider.value), text = comment.value.trim();
+    await post("/api/rate/" + encodeURIComponent(sid),
+               { index: idx, rating, comment: text, time_ms: Math.round(performance.now() - shownAt) });
+    T[idx].rating = rating; T[idx].comment = text;
+  }
+
+  async function finish() {
+    const d = await post("/api/finish/" + encodeURIComponent(sid));
+    finished = true;
+    show("finish");
+    if (d.completion_code) { el("code").textContent = d.completion_code; el("codeLine").hidden = false; }
+    if (d.completion_url) {
+      el("redirectLink").href = d.completion_url; el("redirectLine").hidden = false;
+      setTimeout(() => { location.href = d.completion_url; }, 3000);
+    }
+  }
+
+  el("nextBtn").addEventListener("click", async () => {
+    if (busy) return;
+    busy = true; el("nextBtn").disabled = true; el("backBtn").disabled = true;
+    try {
+      await save();
+      if (idx === T.length - 1) await finish();
+      else {
+        idx++;
+        if (idx === firstMain && firstMain > 0) {           // end of the practice round
+          const t = T[idx];
+          el("mainInfo").textContent = `You will now see ${t.n_places} reference places, each compared with ` +
+                                       `${t.n_in_place} places (${nMain} in total).`;
+          show("practiceDone");
+        } else { render(); window.scrollTo(0, 0); }
+      }
+    } catch (e) {
+      el("status").textContent = "Could not save your answer - check your connection and press Next again.";
+    }
+    busy = false; el("nextBtn").disabled = false;
+    if (!el("study").hidden) el("backBtn").disabled = idx === 0 || idx === firstMain;
+  });
+
+  el("beginBtn").addEventListener("click", () => { show("study"); render(); window.scrollTo(0, 0); });
+
+  el("backBtn").addEventListener("click", async () => {
+    if (busy || idx === 0 || idx === firstMain) return;
+    busy = true;
+    try { await save(); } catch (e) { /* going back without saving this one is fine */ }
+    idx--; render(); busy = false;
+  });
+
+  slider.addEventListener("input", () => { el("valueOut").textContent = slider.value; });
+  document.addEventListener("keydown", e => {
+    if (!el("study").hidden && e.key === "Enter" && e.target !== comment) { e.preventDefault(); el("nextBtn").click(); }
+  });
+  window.addEventListener("beforeunload", e => { if (!finished) { e.preventDefault(); e.returnValue = ""; } });
+
+  el("practiceBtn").addEventListener("click", () => { show("study"); render(); window.scrollTo(0, 0); });
+
+  if (S.finished) { finished = true; show("finish"); return; }
+  if (firstMain > 0 && S.resume_at === 0) {          // brand-new session that starts with practice
+    el("nPractice").textContent = firstMain;
+    show("practiceIntro");
+    return;
+  }
+  show("study");
+  render();
+})();
+</script>
+</body>
+</html>

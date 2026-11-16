@@ -1,0 +1,15 @@
+# Core (steps 1-3, and the app)
+numpy
+pandas
+scikit-learn
+python-dotenv
+matplotlib
+pillow
+openai
+flask
+waitress
+
+# Step 4 only (sketch/text embeddings): install PyTorch for the server's GPU first, then transformers.
+# See README.md, "Step 4".
+# torch
+# transformers
