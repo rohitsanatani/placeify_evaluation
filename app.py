@@ -2,7 +2,9 @@
 The rating app.
 
 One run of the app serves ONE combination, set in config.json:
-    city             newyork | london | boston
+    city             newyork | london | boston | random
+                     random = each new participant is given one of the 3 cities: whichever has the fewest
+                     sessions so far (ties broken at random), so the cities fill up evenly
     model            m2f | siglip
     modality         image | sketch | text          (text only works with siglip)
     comparison_view  panorama | single   panorama = all 4 headings of the comparison place in
@@ -18,7 +20,7 @@ One run of the app serves ONE combination, set in config.json:
 Participants tick the consent box, enter their Prolific ID, do the practice block, then rate
 n_places references x (2 x n_per_set comparisons + n_repeats repeats) on a 1-7 scale, with an optional comment.
 
-Saving (in results/<city>_<modality>_<model>_<view>/):
+Saving (in results/<city>_<modality>_<model>_<view>/, using the participant's assigned city when city is random):
     sessions/<session_id>.json   written after EVERY rating, so nothing is lost if a tab closes
     ratings.csv                  one row per comparison (practice rows included, flagged), appended
                                  when a participant finishes
@@ -76,11 +78,20 @@ def now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def load_study(cfg):
-    """Validate the config and load everything a session needs. Fails loudly at startup."""
-    city, model, modality, view = cfg["city"], cfg["model"], cfg["modality"], cfg["comparison_view"]
+def study_cities(cfg):
+    """The cities this run serves: one, or all of them when city is "random"."""
+    if cfg["city"] == "random":
+        return list(CITIES)
+    if cfg["city"] not in CITIES:
+        raise SystemExit(f'config: city must be one of {CITIES} or "random"')
+    return [cfg["city"]]
+
+
+def load_study(cfg, city):
+    """Validate the config and load everything a session in this city needs. Fails loudly at startup."""
+    model, modality, view = cfg["model"], cfg["modality"], cfg["comparison_view"]
     if city not in CITIES or model not in MODELS or modality not in MODALITIES:
-        raise SystemExit(f"config: city must be {CITIES}, model {MODELS}, modality {MODALITIES}")
+        raise SystemExit(f"config: city must be {CITIES} or random, model {MODELS}, modality {MODALITIES}")
     if modality == "text" and model != "siglip":
         raise SystemExit("config: text can only be searched with siglip")
     if view not in ("panorama", "single"):
@@ -199,28 +210,38 @@ def order_with_repeats(items, n_repeats, rng):
 
 def create_app(cfg):
     cfg = {**DEFAULTS, **cfg}
-    S = load_study(cfg)
-    (S["results"] / "sessions").mkdir(parents=True, exist_ok=True)
+    studies = {c: load_study(cfg, c) for c in study_cities(cfg)}     # every city must be fully built
+    for St in studies.values():
+        (St["results"] / "sessions").mkdir(parents=True, exist_ok=True)
+    S0 = next(iter(studies.values()))      # settings that are the same for every city (modality, counts, ...)
     lock = threading.Lock()
     app = Flask(__name__, static_folder=None)
 
-    def session_path(sid):
+    def find_session(sid):
+        """(study of the session's city, path of its JSON file)."""
         try:
             uuid.UUID(sid)
         except (ValueError, TypeError):
             abort(400)
-        f = S["results"] / "sessions" / f"{sid}.json"
-        if not f.exists():
-            abort(404)
-        return f
+        for St in studies.values():
+            f = St["results"] / "sessions" / f"{sid}.json"
+            if f.exists():
+                return St, f
+        abort(404)
+
+    def session_path(sid):
+        return find_session(sid)[1]
+
+    def n_sessions(St):
+        return sum(1 for _ in (St["results"] / "sessions").glob("*.json"))
 
     def write_json(path, data):
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, indent=1))
         os.replace(tmp, path)          # atomic: a crash never leaves a half-written file
 
-    def place_usage():
-        """How many sessions have been given each place so far (finished or not)."""
+    def place_usage(S):
+        """How many sessions in this city have been given each place so far (finished or not)."""
         used = {pl["place_id"]: 0 for pl in S["places"]}
         for f in (S["results"] / "sessions").glob("*.json"):
             try:
@@ -254,6 +275,7 @@ def create_app(cfg):
 
     @app.get("/api/info")
     def info():
+        S = S0
         per = 2 * S["n_per_set"] + S["n_repeats"]
         n_main = S["n_places"] * per
         n_prac = len(S["practice"]["items"]) if S["practice"] else 0
@@ -270,15 +292,19 @@ def create_app(cfg):
             return jsonify(error="Please tick the consent box to continue."), 400
         rng = random.Random()
         trials = []
-        if S["practice"]:
-            pr = S["practice"]
-            items = [dict(it, is_repeat=False, repeat_of_position="") for it in pr["items"]]
-            rng.shuffle(items)
-            for i, it in enumerate(items, 1):
-                it["comparison_position"] = i
-                trials.append(trial(pr, "practice", "practice", 0, it, len(items)))
-        with lock:   # so two people starting at once don't both get the same least-used places
-            usage = place_usage()
+        with lock:   # so two people starting at once don't both get the same least-used city / places
+            # city: the only one, or (random) the one with the fewest sessions so far, ties broken at random
+            counts = {c: n_sessions(St) for c, St in studies.items()}
+            fewest = min(counts.values())
+            S = studies[rng.choice([c for c, n in counts.items() if n == fewest])]
+            if S["practice"]:
+                pr = S["practice"]
+                items = [dict(it, is_repeat=False, repeat_of_position="") for it in pr["items"]]
+                rng.shuffle(items)
+                for i, it in enumerate(items, 1):
+                    it["comparison_position"] = i
+                    trials.append(trial(pr, "practice", "practice", 0, it, len(items)))
+            usage = place_usage(S)
             ids = list(usage)
             rng.shuffle(ids)                       # random tie-break
             ids.sort(key=lambda x: usage[x])       # least-used first
@@ -294,6 +320,7 @@ def create_app(cfg):
             sess = {"session_id": sid, "prolific_id": pid, "study_id": (body.get("study_id") or "")[:64],
                     "prolific_session_id": (body.get("session_id") or "")[:64], "city": S["city"],
                     "model": S["model"], "modality": S["modality"], "comparison_view": S["view"],
+                    "city_setting": cfg["city"],
                     "n_per_set": S["n_per_set"], "n_repeats": S["n_repeats"], "assigned_places": chosen,
                     "started_at": now(),
                     "consented_at": now(), "user_agent": request.headers.get("User-Agent", "")[:300],
@@ -303,19 +330,21 @@ def create_app(cfg):
 
     @app.get("/api/session/<sid>")
     def get_session(sid):
-        sess = json.loads(session_path(sid).read_text())
+        S, path = find_session(sid)
+        sess = json.loads(path.read_text())
+        c = S["city"]
         # only what the page needs to show: set, rank, similarity and repeat flags stay on the server
         out = []
         for t in sess["trials"]:
             if S["view"] == "panorama":
-                comp = [{"src": f"/img/{f}", "heading": h, "main": f == t["comparison_file"]}
+                comp = [{"src": f"/img/{c}/{f}", "heading": h, "main": f == t["comparison_file"]}
                         for h, f in S["panoramas"][t["comparison_panoid"]]]
             else:
-                comp = [{"src": f"/img/{t['comparison_file']}", "heading": t["comparison_heading"], "main": True}]
+                comp = [{"src": f"/img/{c}/{t['comparison_file']}", "heading": t["comparison_heading"], "main": True}]
             out.append({"block": t["block"], "place_position": t["place_position"], "n_places": t["n_places"],
                         "comparison_position": t["comparison_position"], "n_in_place": t["n_in_place"],
-                        "query": (f"/sketch/{t['place_id']}" if S["modality"] == "sketch" else
-                                  f"/img/{t['query_file']}" if S["modality"] == "image" else None),
+                        "query": (f"/sketch/{c}/{t['place_id']}" if S["modality"] == "sketch" else
+                                  f"/img/{c}/{t['query_file']}" if S["modality"] == "image" else None),
                         "query_text": t.get("query_text"), "comparison": comp,
                         "rating": t["rating"], "comment": t.get("comment", "")})
         first_open = next((i for i, t in enumerate(sess["trials"]) if t["rating"] is None), len(out))
@@ -346,7 +375,7 @@ def create_app(cfg):
     @app.post("/api/finish/<sid>")
     def finish(sid):
         with lock:
-            path = session_path(sid)
+            S, path = find_session(sid)
             sess = json.loads(path.read_text())
             left = sum(t["rating"] is None for t in sess["trials"])
             if left:
@@ -363,20 +392,25 @@ def create_app(cfg):
                     w.writerows(trial_row(sess, t) for t in sess["trials"])
         return jsonify(completion_url=cfg.get("completion_url", ""), completion_code=cfg.get("completion_code", ""))
 
-    @app.get("/img/<path:fname>")
-    def img(fname):
-        if fname not in S["allowed"]:
+    @app.get("/img/<city>/<path:fname>")
+    def img(city, fname):
+        S = studies.get(city)
+        if not S or fname not in S["allowed"]:
             abort(404)
         return send_file(S["img_dir"] / fname, max_age=86400)
 
-    @app.get("/sketch/<qid>")
-    def sketch(qid):
+    @app.get("/sketch/<city>/<qid>")
+    def sketch(city, qid):
+        S = studies.get(city)
+        if not S:
+            abort(404)
         ok = {pl["place_id"] for pl in S["places"]} | ({S["practice"]["place_id"]} if S["practice"] else set())
         if S["modality"] != "sketch" or qid not in ok:
             abort(404)
         return send_file(S["sketch_dir"] / f"{qid}.png", max_age=86400)
 
-    app.config["STUDY"] = S
+    app.config["STUDIES"] = studies
+    app.config["STUDY"] = S0
     app.config["CFG"] = cfg
     return app
 
@@ -398,12 +432,15 @@ def main():
                          f"Pick another, e.g. 5050-5059.")
     app = create_app(cfg)
     S = app.config["STUDY"]
+    studies = app.config["STUDIES"]
     per = 2 * S["n_per_set"] + S["n_repeats"]
-    print(f"Study: {S['city']} / {S['modality']} / {S['model']} / {S['view']} view - "
+    city_txt = S["city"] if len(studies) == 1 else "random city (" + ", ".join(studies) + ")"
+    print(f"Study: {city_txt} / {S['modality']} / {S['model']} / {S['view']} view - "
           f"{S['n_places']} of {len(S['places'])} references per participant x {per} comparisons "
           f"({S['n_per_set']} top + {S['n_per_set']} random + {S['n_repeats']} repeats) = {S['n_places'] * per} ratings"
           + (f" + {len(S['practice']['items'])} practice" if S["practice"] else ""))
-    print(f"Results: {S['results']}")
+    for St in studies.values():
+        print(f"Results: {St['results']}")
     print(f"Open: http://localhost:{port}/  (or the server's address)")
     try:
         from waitress import serve

@@ -1,5 +1,5 @@
 {
-  "city": "newyork",
+  "city": "random",
   "model": "siglip",
   "modality": "image",
   "comparison_view": "panorama",
@@ -11,15 +11,15 @@
   "completion_url": "",
   "completion_code": "",
   "_options": {
-    "city": "newyork | london | boston",
+    "city": "newyork | london | boston | random  (random = each participant gets the city with the fewest sessions so far, ties at random; results still go to each city's own folder)",
     "model": "m2f | siglip",
     "modality": "image | sketch | text  (text only works with siglip)",
-    "comparison_view": "panorama (all 4 headings, matched one enlarged) | single (just the matched image)",
+    "comparison_view": "panorama (all 4 headings, matched one marked with an arrow) | single (just the matched image)",
     "n_places": "how many reference images (of the 20 test places) each participant rates; least-used are handed out first",
     "n_per_set": "comparisons per reference: this many top results AND this many random images, 1-10 (10 = 10 + 10)",
     "n_repeats": "consistency check: comparisons per reference shown a second time (0 = off; max depends on n_per_set)",
     "practice": "true = start with a practice block (place p00: 2 top + 2 random, or fewer if n_per_set is 1)",
-    "port": "any free port, e.g. 5050-5059",
+    "port": "any free port, e.g. 5050-5059 (ignored under gunicorn, which uses its --bind port)",
     "completion_url": "Prolific's completion link (participants are sent there at the end)",
     "completion_code": "Prolific's completion code (shown on the thank-you page)"
   }

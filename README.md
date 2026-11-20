@@ -135,6 +135,7 @@ and stops with a clear message if the embeddings were made for different ones.
 | setting | values |
 |---|---|
 | `city` / `model` / `modality` | newyork, london, boston / m2f, siglip / image, sketch, text (text needs siglip) |
+| `city: "random"` | each new participant gets one of the 3 cities: the one with the fewest sessions so far for this modality/model/view (ties at random), so the cities fill up evenly. All 3 cities must be built for the modality, or the app won't start. Results still go to each city's own folder |
 | `comparison_view` | `panorama` = all 4 headings of the comparison place (0/90/180/270 order, the matched one marked with an arrow); `single` = just the matched image |
 | `n_places` | reference images (test places) per participant, 1-20; least-used ones are handed out first |
 | `n_per_set` | comparisons per reference: this many top results (ranks 1..n) AND this many random images, 1-10 (default 10) |
@@ -156,7 +157,7 @@ The app refuses to start if the combination is invalid or anything it needs isn'
 Participant flow: instructions + consent + Prolific ID -> practice round -> "practice complete" ->
 n_places references x (2 x n_per_set + n_repeats) comparisons, shuffled, 1-7 slider + optional comment -> completion code.
 
-Results, in `results/<city>_<modality>_<model>_<view>/`:
+Results, in `results/<city>_<modality>_<model>_<view>/` (with `random`, the participant's assigned city; the session JSON also has `city_setting: "random"`):
 - `sessions/<id>.json`: saved after every rating (a closed tab can be reopened and resumes)
 - `ratings.csv`: one row per comparison, added when a participant finishes. Columns include block
   (practice/main), reference + comparison filenames, panorama IDs and heading, top/random + rank,
