@@ -1,5 +1,7 @@
 .env
+config.json
 data/
+archive/
 __pycache__/
 *.pyc
 results/
